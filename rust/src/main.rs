@@ -9,7 +9,7 @@ use std::fs;
 use regex::Regex;
 
 fn read_file_and_process_words() -> HashMap<String, u32> {
-    let input = fs::read_to_string("big.txt").expect("File big.txt is not in current directory.");
+    let input = fs::read_to_string("../common/big.txt").expect("File big.txt is not in current directory.");
 
     process_words(&input)
 }
@@ -273,12 +273,12 @@ mod tests {
     fn test_sets() {
         let words = read_file_and_process_words();
 
-        let test_set_1 = read_test_file("spell-testset1.txt");
+        let test_set_1 = read_test_file("../common/spell-testset1.txt");
         run_test_set(test_set_1, &words, true);
-        // 75% of 270 correct at 41 words per second
+        // 75% of 270 correct (6% unknown) at 172 words per second
 
-        let test_set_2 = read_test_file("spell-testset2.txt");
+        let test_set_2 = read_test_file("../common/spell-testset2.txt");
         run_test_set(test_set_2, &words, true);
-        // 68% of 400 correct at 35 words per second
+        // 68% of 400 correct (11% unknown) at 147 words per second
     }
 }

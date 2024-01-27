@@ -1,4 +1,10 @@
-Implementing https://norvig.com/spell-correct.html in rust
-Author: Satvik Choudhary
+# spellchecker
 
-Run with `cargo test --release` to see the results of the tests.
+## Rust
+
+147 words per second
+
+## Go
+
+92 words per second
+
