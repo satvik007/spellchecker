@@ -9,3 +9,7 @@ Implementing https://norvig.com/spell-correct.html in rust
 ## Go
 
 92 words per second
+
+## Zig
+
+Zig unfortunately doesn't work because of possible compiler bugs.
