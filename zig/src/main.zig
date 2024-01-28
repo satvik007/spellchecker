@@ -132,6 +132,7 @@ fn edits1(allocator: mem.Allocator, word: []const u8) ![][]const u8 {
     var result: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(allocator);
 
     const word_len = word.len;
+    try result.ensureTotalCapacity((word_len+1) * 54);
 
     for (0..word_len + 1) |i| {
         const word_prefix = word[0..i];
@@ -189,6 +190,7 @@ fn edits1(allocator: mem.Allocator, word: []const u8) ![][]const u8 {
 
 fn edits2(allocator: mem.Allocator, word: []const u8) ![][]const u8 {
     var result: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(allocator);
+    try result.ensureTotalCapacity(54 * 54 * (word.len + 1) * (word.len + 1));
 
     const ed1 = try edits1(allocator, word);
     defer {
@@ -427,7 +429,7 @@ test "test_sets" {
         }
         gpa.free(test_set_1);
     }
-    // 74.81481481481481% of 270 correct (5.555555555555555% unknown) at 54 words per second
+    // 74.81481481481481% of 270 correct (5.555555555555555% unknown) at 135 words per second
 
     const test_set_2 = try read_test_file(gpa, "../common/spell-testset2.txt");
     try run_test_set(test_set_2, &words);
@@ -439,5 +441,5 @@ test "test_sets" {
         }
         gpa.free(test_set_2);
     }
-    // 67.5% of 400 correct (10.75% unknown) at 44.44444444444444 words per second
+    // 67.5% of 400 correct (10.75% unknown) at 100 words per second
 }

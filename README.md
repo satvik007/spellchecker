@@ -21,6 +21,4 @@ go version go1.21.4 linux/amd64
 `zig test src/main.zig -O ReleaseFast`
 0.12.0-dev.2341+92211135f
 
-44.44444444444444 words per second
-
-(Zig here is slower, please help me figure out why!)
+100 words per second
