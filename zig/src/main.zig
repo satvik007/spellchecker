@@ -75,8 +75,8 @@ fn known(allocator: mem.Allocator, map: *const HashMap(u32), words: []const []co
     defer set.deinit();
 
     for (words) |word| {
-        if (map.contains(word)) {
-            try set.put(word, void{});
+        if (map.getKey(word)) |key| {
+            try set.put(key, void{});
         }
     }
 
@@ -85,8 +85,7 @@ fn known(allocator: mem.Allocator, map: *const HashMap(u32), words: []const []co
     var idx: usize = 0;
 
     for (set.keys()) |key| {
-        const word = try allocator.dupe(u8, key);
-        result[idx] = word;
+        result[idx] = key;
         idx += 1;
     }
 
@@ -101,14 +100,24 @@ fn candidates(allocator: mem.Allocator, map: *const HashMap(u32), word: []const 
     }
 
     const ed1 = try edits1(allocator, word);
-    defer allocator.free(ed1);
+    defer {
+        for (ed1) |e1| {
+            allocator.free(e1);
+        }
+        allocator.free(ed1);
+    }
     const e1 = try known(allocator, map, ed1);
     if (e1.len > 0) {
         return e1;
     }
 
     const ed2 = try edits2(allocator, word);
-    defer allocator.free(ed2);
+    defer {
+        for (ed2) |e2| {
+            allocator.free(e2);
+        }
+        allocator.free(ed2);
+    }
     const e2 = try known(allocator, map, ed2);
     if (e2.len > 0) {
         return e2;
@@ -175,27 +184,35 @@ fn edits1(allocator: mem.Allocator, word: []const u8) ![][]const u8 {
         }
     }
 
-    return result.items;
+    return result.toOwnedSlice();
 }
 
 fn edits2(allocator: mem.Allocator, word: []const u8) ![][]const u8 {
     var result: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(allocator);
 
-    const e1r = try edits1(allocator, word);
-    defer allocator.free(e1r);
-
-    for (e1r) |e1| {
-        for (try edits1(allocator, e1)) |e2| {
-            try result.append(e2);
+    const ed1 = try edits1(allocator, word);
+    defer {
+        for (ed1) |e1| {
+            allocator.free(e1);
         }
+
+        allocator.free(ed1);
     }
 
-    return result.items;
+    for (ed1) |e1| {
+        const ed2 = try edits1(allocator, e1);
+        try result.appendSlice(ed2);
+        allocator.free(ed2);
+    }
+
+    return result.toOwnedSlice();
 }
 
 fn correction(allocator: mem.Allocator, map: *const HashMap(u32), word: []const u8) ![]const u8 {
     const cd = try candidates(allocator, map, word);
-    defer allocator.free(cd);
+    defer {
+        allocator.free(cd);
+    }
 
     if (cd.len == 1) {
         return allocator.dupe(u8, cd[0]);
@@ -215,6 +232,85 @@ fn correction(allocator: mem.Allocator, map: *const HashMap(u32), word: []const 
     return allocator.dupe(u8, max_key);
 }
 
+fn read_test_file(allocator: mem.Allocator, file_name: []const u8) ![][2][]const u8 {
+    const file = try os.open(file_name, std.os.O.RDONLY, 0);
+    defer std.os.close(file);
+
+    const file_stat = try std.os.fstat(file);
+    const file_size: usize = @intCast(file_stat.size);
+
+    // convert file_size to usize
+    const file_contents = try allocator.alloc(u8, file_size);
+    defer allocator.free(file_contents);
+
+    const read_size = try os.read(file, file_contents);
+    if (read_size != file_size) {
+        std.log.warn("Failed to read entire file\n", .{});
+    }
+
+    var result: std.ArrayList([2][]const u8) = std.ArrayList([2][]const u8).init(allocator);
+    defer result.deinit();
+
+    var buffer: [1024]u8 = undefined;
+    var word_idx: usize = 0;
+
+    var correct_word: [1024]u8 = undefined;
+    var correct_len: usize = 0;
+
+    for (file_contents) |c| {
+        if (c >= 'a' and c <= 'z') {
+            buffer[word_idx] = c;
+            word_idx += 1;
+        } else if (c == ':') {
+            std.mem.copyForwards(u8, correct_word[0..word_idx], buffer[0..word_idx]);
+            correct_len = word_idx;
+            word_idx = 0;
+        } else if (c == ' ' or c == '\n') {
+            if (word_idx > 0) {
+                const wrong_word = buffer[0..word_idx];
+                const entry = try allocator.create([2][]const u8);
+                entry[0] = try allocator.dupe(u8, correct_word[0..correct_len]);
+                entry[1] = try allocator.dupe(u8, wrong_word);
+
+                try result.append(entry.*);
+            }
+            word_idx = 0;
+        }
+    }
+
+    return result.toOwnedSlice();
+}
+
+fn run_test_set(test_set: [][2][]const u8, map: *const HashMap(u32)) !void {
+    const start = std.time.timestamp();
+    var good: u32 = 0;
+    var unknown: u32 = 0;
+    const n = test_set.len;
+
+    for (test_set) |item| {
+        const right = item[0];
+        const wrong = item[1];
+
+        const w = try correction(std.testing.allocator, map, wrong);
+        if (std.mem.eql(u8, w, right)) {
+            good += 1;
+        } else {
+            if (!map.contains(right)) {
+                std.debug.print("Unknown: {s}\n", .{right});
+                unknown += 1;
+            }
+        }
+    }
+
+    const dt = std.time.timestamp() - start;
+    std.debug.print("{d}% of {d} correct ({d}% unknown) at {d} words per second\n", .{
+        (@as(f64, @floatFromInt(good)) * 100.0) / @as(f64, @floatFromInt(n)),
+        n,
+        @as(f64, @floatFromInt(unknown)) * 100.0 / @as(f64, @floatFromInt(n)),
+        @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(dt)),
+    });
+}
+
 test "spellchecker" {
     var generalPurposeAllocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = generalPurposeAllocator.allocator();
@@ -226,15 +322,35 @@ test "spellchecker" {
 
     assert(words.count() == 29157);
 
-    assert(std.mem.eql(u8, try correction(gpa, &words, "speling"), "spelling"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "korrectud"), "corrected"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "bycycle"), "bicycle"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "inconvient"), "inconvenient"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "arrainged"), "arranged"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "peotry"), "poetry"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "peotry"), "poetry"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "word"), "word"));
-    assert(std.mem.eql(u8, try correction(gpa, &words, "quintessential"), "quintessential"));
+    const incorrect: [9][]const u8 = [_][]const u8{
+        "speling",
+        "korrectud",
+        "bycycle",
+        "inconvient",
+        "arrainged",
+        "peotry",
+        "peotryy",
+        "word",
+        "quintessential",
+    };
+
+    const correct: [9][]const u8 = [_][]const u8{
+        "spelling",
+        "corrected",
+        "bicycle",
+        "inconvenient",
+        "arranged",
+        "poetry",
+        "poetry",
+        "word",
+        "quintessential",
+    };
+
+    for (correct, incorrect) |c, i| {
+        const corr = try correction(gpa, &words, i);
+        assert(std.mem.eql(u8, corr, c));
+        gpa.free(corr);
+    }
 }
 
 test "process_words" {
@@ -288,4 +404,40 @@ fn cmpStr(_x: @TypeOf(.{}), a: []const u8, b: []const u8) bool {
     }
 
     return a.len <= b.len;
+}
+
+test "test_sets" {
+    var generalPurposeAllocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = generalPurposeAllocator.allocator();
+    defer _ = generalPurposeAllocator.deinit();
+
+    var words = HashMap(u32).init(gpa);
+    try read_file_and_process_words(gpa, &words);
+    defer deinitKeysAndMap(gpa, &words);
+
+    assert(words.count() == 29157);
+
+    const test_set_1 = try read_test_file(gpa, "../common/spell-testset1.txt");
+    try run_test_set(test_set_1, &words);
+    defer {
+        for (test_set_1) |item| {
+            gpa.free(item[0]);
+            gpa.free(item[1]);
+            gpa.destroy(&item);
+        }
+        gpa.free(test_set_1);
+    }
+    // 74.81481481481481% of 270 correct (5.555555555555555% unknown) at 54 words per second
+
+    const test_set_2 = try read_test_file(gpa, "../common/spell-testset2.txt");
+    try run_test_set(test_set_2, &words);
+    defer {
+        for (test_set_2) |item| {
+            gpa.free(item[0]);
+            gpa.free(item[1]);
+            gpa.destroy(&item);
+        }
+        gpa.free(test_set_2);
+    }
+    // 67.5% of 400 correct (10.75% unknown) at 44.44444444444444 words per second
 }

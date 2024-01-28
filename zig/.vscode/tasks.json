@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build zig test",
+      "type": "shell",
+      "command": "zig test -femit-bin=zig-out/bin/${fileBasenameNoExtension}test ${relativeFile}"
+    }
+  ]
+}
